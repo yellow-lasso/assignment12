@@ -8,9 +8,13 @@
 <body>
     <h1>Congressional Trade Disclosure Analysis Tool</h1>
 
-    <p><a href="/add">Add a New Trade</a></p>
+    <p>Logged in as: <strong>{{ user.username }}</strong></p>
+    <p>
+        <a href="/add">Add a New Trade</a> |
+        <a href="/logout">Logout</a>
+    </p>
 
-    <h2>Saved Trade Records</h2>
+    <h2>Your Trade Records</h2>
 
     {% if trades %}
         {% for trade in trades %}
@@ -31,7 +35,7 @@
             </p>
         {% endfor %}
     {% else %}
-        <p>No trades have been added yet.</p>
+        <p>You have not added any trades yet.</p>
     {% endif %}
 </body>
 </html>

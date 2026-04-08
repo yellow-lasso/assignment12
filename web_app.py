@@ -1,10 +1,13 @@
-from flask import Flask, render_template, request, redirect, url_for
-from models import db, Trade
+from functools import wraps
+
+from flask import Flask, render_template, request, redirect, url_for, session, flash
+from models import db, User, Trade
 
 app = Flask(__name__)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///project.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["SECRET_KEY"] = "change-this-later"
 
 db.init_app(app)
 
@@ -12,20 +15,82 @@ with app.app_context():
     db.create_all()
 
 
-# ========================
-# HOME ROUTE (READ)
-# ========================
+def login_required(view_func):
+    @wraps(view_func)
+    def wrapped_view(*args, **kwargs):
+        if "user_id" not in session:
+            return redirect(url_for("login"))
+        return view_func(*args, **kwargs)
+    return wrapped_view
+
+
+def get_current_user():
+    user_id = session.get("user_id")
+    if user_id:
+        return User.query.get(user_id)
+    return None
+
+
 @app.route("/")
+@login_required
 def home():
-    trades = Trade.query.all()
-    return render_template("index.html", trades=trades)
+    user = get_current_user()
+    trades = Trade.query.filter_by(user_id=user.id).all()
+    return render_template("index.html", trades=trades, user=user)
 
 
-# ========================
-# ADD ROUTE (CREATE)
-# ========================
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "").strip()
+
+        existing_user = User.query.filter_by(username=username).first()
+        if existing_user:
+            flash("Username already exists.")
+            return redirect(url_for("register"))
+
+        user = User(username=username)
+        user.set_password(password)
+
+        db.session.add(user)
+        db.session.commit()
+
+        flash("Registration successful. Please log in.")
+        return redirect(url_for("login"))
+
+    return render_template("register.html")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "").strip()
+
+        user = User.query.filter_by(username=username).first()
+
+        if user and user.check_password(password):
+            session["user_id"] = user.id
+            return redirect(url_for("home"))
+
+        flash("Invalid username or password.")
+        return redirect(url_for("login"))
+
+    return render_template("login.html")
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
 @app.route("/add", methods=["GET", "POST"])
+@login_required
 def add_trade():
+    user = get_current_user()
+
     if request.method == "POST":
         trade = Trade(
             representative=request.form.get("representative", "").strip(),
@@ -37,6 +102,7 @@ def add_trade():
             amount_min=request.form.get("amount_min", "").strip(),
             amount_max=request.form.get("amount_max", "").strip(),
             source=request.form.get("source", "").strip(),
+            user_id=user.id,
         )
 
         db.session.add(trade)
@@ -47,12 +113,11 @@ def add_trade():
     return render_template("add_trade.html")
 
 
-# ========================
-# EDIT ROUTE (UPDATE)
-# ========================
 @app.route("/edit/<int:item_id>", methods=["GET", "POST"])
+@login_required
 def edit_trade(item_id):
-    trade = Trade.query.get_or_404(item_id)
+    user = get_current_user()
+    trade = Trade.query.filter_by(id=item_id, user_id=user.id).first_or_404()
 
     if request.method == "POST":
         trade.representative = request.form.get("representative", "").strip()
@@ -72,12 +137,11 @@ def edit_trade(item_id):
     return render_template("edit_trade.html", trade=trade)
 
 
-# ========================
-# DELETE ROUTE (DELETE)
-# ========================
 @app.route("/delete/<int:item_id>")
+@login_required
 def delete_trade(item_id):
-    trade = Trade.query.get_or_404(item_id)
+    user = get_current_user()
+    trade = Trade.query.filter_by(id=item_id, user_id=user.id).first_or_404()
 
     db.session.delete(trade)
     db.session.commit()
